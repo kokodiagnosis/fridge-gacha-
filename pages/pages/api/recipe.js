@@ -37,13 +37,18 @@ ${ingredients.join('、')}
       })
     })
 
+    if (!response.ok) {
+      throw new Error('API request failed')
+    }
+
     const data = await response.json()
     const text = data.content[0].text
     const recipe = JSON.parse(text.replace(/```json|```/g, '').trim())
     
-    res.status(200).json(recipe)
+    return res.status(200).json(recipe)
   } catch (error) {
-    res.status(500).json({
+    console.error('Error:', error)
+    return res.status(200).json({
       dishName: "おまかせ炒め",
       encouragement: "今日も頑張ってる！💪",
       time: "15分",
