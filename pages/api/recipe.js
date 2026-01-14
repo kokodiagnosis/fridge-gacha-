@@ -5,7 +5,6 @@ export default async function handler(req, res) {
 
   const { ingredients } = req.body || {};
 
-  // 入力の最低限チェック
   if (!Array.isArray(ingredients) || ingredients.length === 0) {
     return res.status(400).json({ error: "ingredients is required" });
   }
@@ -27,7 +26,6 @@ ${ingredients.join("、")}
 }`;
 
   try {
-    // Vercel の環境変数に入れた CLAUDE_API_KEY を使う
     const apiKey = process.env.CLAUDE_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: "CLAUDE_API_KEY is not set" });
@@ -41,16 +39,20 @@ ${ingredients.join("、")}
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-3-5-sonnet-latest",
         max_tokens: 900,
-        messages: [{ role: "user", content: prompt }],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: prompt }],
+          },
+        ],
       }),
     });
 
     const raw = await response.text();
 
     if (!response.ok) {
-      // ここでAnthropicからのエラーをそのまま返す（原因特定しやすい）
       return res.status(response.status).json({
         error: "Anthropic API request failed",
         status: response.status,
@@ -61,14 +63,12 @@ ${ingredients.join("、")}
     const data = JSON.parse(raw);
     const text = data?.content?.[0]?.text || "";
 
-    // Claudeが ```json ``` で囲むことがあるので除去
     const cleaned = text.replace(/```json|```/g, "").trim();
 
     let recipe;
     try {
       recipe = JSON.parse(cleaned);
     } catch (e) {
-      // JSONとしてパースできなかった場合、内容を返して原因が見えるようにする
       return res.status(500).json({
         error: "Failed to parse Claude response as JSON",
         rawText: text,
@@ -78,15 +78,9 @@ ${ingredients.join("、")}
     return res.status(200).json(recipe);
   } catch (error) {
     console.error("Error:", error);
-    // フォールバック（最低限動く）
-    return res.status(200).json({
-      dishName: "おまかせ炒め",
-      encouragement: "今日も頑張ってる！💪",
-      time: "15分",
-      difficulty: "簡単",
-      ingredients: ingredients.slice(0, 5),
-      steps: ["材料を切る", "フライパンで炒める", "お好みの調味料で味付け"],
-      tip: "あるもので作るのが一番！",
+    return res.status(500).json({
+      error: "Server error",
+      details: String(error),
     });
   }
 }
