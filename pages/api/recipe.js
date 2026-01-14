@@ -1,29 +1,44 @@
+// pages/api/recipe.js
+
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+  // POST以外は拒否
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { ingredients } = req.body
+  // ingredients の受け取りを堅くする（配列でも文字列でもOK）
+  let { ingredients } = req.body;
+
+  // 文字列で来たら分割して配列化（"卵,ツナ" / "卵、ツナ" / 改行など対応）
+  if (typeof ingredients === "string") {
+    ingredients = ingredients
+      .split(/[,、\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  // 配列じゃなければ空配列
+  if (!Array.isArray(ingredients)) ingredients = [];
+
+  // 空ならエラー（ここは好みでメッセージ変えてOK）
+  if (ingredients.length === 0) {
+    return res.status(400).json({ error: "ingredients is empty" });
+  }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.CLAUDE_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `あなたは優しい料理の先生です。疲れた主婦を元気づけるように、温かく励ましながらレシピを教えてください。
+    const prompt = `
+あなたは優しい料理の先生です。疲れた主婦を元気づけるように、温かく励ましながらレシピを教えてください。
 
 以下の食材を使った簡単で美味しい料理を1つ提案してください：
-${ingredients.join('、')}
+${ingredients.join("、")}
 
-以下のJSON形式のみで回答してください（JSON以外は書かないで）：
+【重要】
+- 必ず「JSONのみ」を返してください（前後に文章・コードブロック禁止）
+- 値はすべて日本語
+- steps は3〜6個
+- ingredients は上の入力食材から中心に選んでOK（全部使わなくていい）
+
+出力フォーマット：
 {
   "dishName": "料理名",
   "encouragement": "疲れた主婦への短い励ましメッセージ（絵文字付きで20文字以内）",
@@ -32,30 +47,55 @@ ${ingredients.join('、')}
   "ingredients": ["使う食材1", "使う食材2"],
   "steps": ["手順1", "手順2", "手順3"],
   "tip": "ワンポイントアドバイス"
-}`
-        }]
-      })
-    })
+}
+`.trim();
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.CLAUDE_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 900,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
 
     if (!response.ok) {
-      throw new Error('API request failed')
+      const errText = await response.text().catch(() => "");
+      return res.status(500).json({
+        error: "Anthropic API request failed",
+        status: response.status,
+        detail: errText.slice(0, 500),
+      });
     }
 
-    const data = await response.json()
-    const text = data.content[0].text
-    const recipe = JSON.parse(text.replace(/```json|```/g, '').trim())
-    
-    return res.status(200).json(recipe)
+    const data = await response.json();
+
+    // content は配列で返ることが多い
+    const text = Array.isArray(data?.content) ? data.content.map((c) => c.text || "").join("\n") : "";
+
+    // 余計な ```json ``` を削る（念のため）
+    const cleaned = text.replace(/```json|```/g, "").trim();
+
+    // JSONとしてパース
+    const recipe = JSON.parse(cleaned);
+
+    // 最低限の形を整える
+    recipe.ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : ingredients.slice(0, 5);
+    recipe.steps = Array.isArray(recipe.steps) ? recipe.steps : ["材料を切る", "加熱する", "味を整える"];
+
+    return res.status(200).json(recipe);
   } catch (error) {
-    console.error('Error:', error)
-    return res.status(200).json({
-      dishName: "おまかせ炒め",
-      encouragement: "今日も頑張ってる！💪",
-      time: "15分",
-      difficulty: "簡単",
-      ingredients: ingredients.slice(0, 5),
-      steps: ["材料を切る", "フライパンで炒める", "お好みの調味料で味付け"],
-      tip: "あるもので作るのが一番！"
-    })
+    // ここで “固定レシピ返し” をやると、失敗時に毎回同じに見えるので
+    // 失敗は失敗としてフロントに返す（原因が分かる）
+    console.error("Error:", error);
+    return res.status(500).json({
+      error: "Server error",
+      message: error?.message || "unknown",
+    });
   }
 }
