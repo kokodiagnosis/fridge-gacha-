@@ -28,7 +28,7 @@ ${ingredients.join("、")}
   try {
     const apiKey = process.env.CLAUDE_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: "CLAUDE_API_KEY is not set" });
+      return res.status(500).json({ error: "_API_KEY is not set" });
     }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -39,7 +39,7 @@ ${ingredients.join("、")}
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-latest",
+        model: "claude-sonnet-4-5-20250929",
 
         max_tokens: 900,
         messages: [
